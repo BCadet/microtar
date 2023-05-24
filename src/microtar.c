@@ -67,14 +67,14 @@ static int tread(mtar_t *tar, void *data, unsigned size)
 {
     int len = tar->read(tar, data, size);
     tar->pos += len;
-    return len == size;
+    return len;
 }
 
 static int twrite(mtar_t *tar, const void *data, unsigned size)
 {
     int len = tar->write(tar, data, size);
     tar->pos += len;
-    return len == size;
+    return len;
 }
 
 static int write_null_bytes(mtar_t *tar, int n)
@@ -302,22 +302,23 @@ int mtar_find(mtar_t *tar, const char *name, mtar_header_t *h)
 
 int mtar_read_header(mtar_t *tar, mtar_header_t *h)
 {
-    int ret;
+    int len;
     mtar_raw_header_t rh;
     /* Save header position */
     tar->last_header = tar->pos;
     /* Read raw header */
-    int last_pos = tar->pos;
+    size_t dataRead = 0;
     do
     {
-        ret = tread(tar, &rh, sizeof(rh));
-        if (ret < 0)
+        len = tread(tar, (char*)&rh + dataRead, sizeof(rh) - dataRead);
+        if (len < 0)
         {
-            return ret;
+            return len;
         }
-    } while (tar->pos - last_pos < sizeof(rh));
+        dataRead += len;
+    } while (dataRead < sizeof(rh));
     /* Seek back to start of header */
-    ret = mtar_seek(tar, tar->last_header);
+    int ret = mtar_seek(tar, tar->last_header);
     if (ret)
     {
         return ret;
@@ -347,19 +348,22 @@ int mtar_read_data(mtar_t *tar, void *ptr, unsigned size)
             return err;
         }
         tar->remaining_data = h.size;
+        if(h.size == 0) //the header point to a folder
+            return MTAR_ESUCCESS;
     }
     /* Read data */
-    int last_pos = tar->pos;
-    int ret;
+    int len;
+    size_t dataRead = 0;
     do
     {
-        ret = tread(tar, ptr, size);
-        if (ret < 0)
+        len = tread(tar, ptr + dataRead, size - dataRead);
+        if (len < 0)
         {
-            return ret;
+            return len;
         }
-        tar->remaining_data -= ret;
-    } while (tar->pos - last_pos < size);
+        tar->remaining_data -= len;
+        dataRead += len;
+    } while (dataRead < size);
     /* If there is no remaining data we've finished reading and seek back to the
      * header */
     if (tar->remaining_data == 0)
