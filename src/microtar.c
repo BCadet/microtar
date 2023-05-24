@@ -65,16 +65,16 @@ static unsigned checksum(const mtar_raw_header_t *rh)
 
 static int tread(mtar_t *tar, void *data, unsigned size)
 {
-    int err = tar->read(tar, data, size);
-    tar->pos += size;
-    return err;
+    int len = tar->read(tar, data, size);
+    tar->pos += len;
+    return len == size;
 }
 
 static int twrite(mtar_t *tar, const void *data, unsigned size)
 {
-    int err = tar->write(tar, data, size);
-    tar->pos += size;
-    return err;
+    int len = tar->write(tar, data, size);
+    tar->pos += len;
+    return len == size;
 }
 
 static int write_null_bytes(mtar_t *tar, int n)
@@ -173,19 +173,19 @@ const char *mtar_strerror(int err)
 static int file_write(mtar_t *tar, const void *data, unsigned size)
 {
     unsigned res = fwrite(data, 1, size, tar->stream);
-    return (res == size) ? MTAR_ESUCCESS : MTAR_EWRITEFAIL;
+    return res;
 }
 
 static int file_read(mtar_t *tar, void *data, unsigned size)
 {
     unsigned res = fread(data, 1, size, tar->stream);
-    return (res == size) ? MTAR_ESUCCESS : MTAR_EREADFAIL;
+    return res;
 }
 
 static int file_seek(mtar_t *tar, unsigned offset)
 {
     int res = fseek(tar->stream, offset, SEEK_SET);
-    return (res == 0) ? MTAR_ESUCCESS : MTAR_ESEEKFAIL;
+    return res;
 }
 
 static int file_close(mtar_t *tar)
@@ -242,7 +242,8 @@ int mtar_close(mtar_t *tar)
 int mtar_seek(mtar_t *tar, unsigned pos)
 {
     int err = tar->seek(tar, pos);
-    tar->pos = pos;
+    if(!err)
+        tar->pos = pos;
     return err;
 }
 
@@ -301,21 +302,25 @@ int mtar_find(mtar_t *tar, const char *name, mtar_header_t *h)
 
 int mtar_read_header(mtar_t *tar, mtar_header_t *h)
 {
-    int err;
+    int ret;
     mtar_raw_header_t rh;
     /* Save header position */
     tar->last_header = tar->pos;
     /* Read raw header */
-    err = tread(tar, &rh, sizeof(rh));
-    if (err)
+    int last_pos = tar->pos;
+    do
     {
-        return err;
-    }
+        ret = tread(tar, &rh, sizeof(rh));
+        if (ret < 0)
+        {
+            return ret;
+        }
+    } while (tar->pos - last_pos < sizeof(rh));
     /* Seek back to start of header */
-    err = mtar_seek(tar, tar->last_header);
-    if (err)
+    ret = mtar_seek(tar, tar->last_header);
+    if (ret)
     {
-        return err;
+        return ret;
     }
     /* Load raw header into header struct and return */
     return raw_to_header(h, &rh);
@@ -344,12 +349,17 @@ int mtar_read_data(mtar_t *tar, void *ptr, unsigned size)
         tar->remaining_data = h.size;
     }
     /* Read data */
-    err = tread(tar, ptr, size);
-    if (err)
+    int last_pos = tar->pos;
+    int ret;
+    do
     {
-        return err;
-    }
-    tar->remaining_data -= size;
+        ret = tread(tar, ptr, size);
+        if (ret < 0)
+        {
+            return ret;
+        }
+        tar->remaining_data -= ret;
+    } while (tar->pos - last_pos < size);
     /* If there is no remaining data we've finished reading and seek back to the
      * header */
     if (tar->remaining_data == 0)
