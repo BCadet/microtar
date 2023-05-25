@@ -370,7 +370,7 @@ int mtar_read_data(mtar_t *tar, void *ptr, unsigned size)
     {
         return mtar_seek(tar, tar->last_header);
     }
-    return MTAR_ESUCCESS;
+    return dataRead;
 }
 
 int mtar_write_header(mtar_t *tar, const mtar_header_t *h)
